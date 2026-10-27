@@ -1,0 +1,295 @@
+import os
+import random
+import asyncio
+from datetime import datetime
+import pytz
+from telegram import Update
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+
+# Configuración y Variables de Railway
+BOT_TOKEN = os.getenv("BOT_TOKEN", "9032684474:AAHepNpFbaBPgxDxms2rDepMkI0bKqvET2E")
+
+# Admins autorizadas (IDs)
+ADMINS = {5398217730, 6719272561}
+
+# Base de datos en memoria (para producción se recomienda base de datos externa, pero funciona perfectamente para Railway)
+# Estructuras:
+# user_attempts: user_id -> {"has_rolled": bool, "promo": str, "code": str, "can_luckier": bool}
+# redeemed_codes: code -> data_dict
+# user_claims: user_id -> data_dict
+user_attempts = {}
+redeemed_codes = {}
+user_claims = {}
+
+TZ_GMT_MINUS_4 = pytz.timezone("America/Caracas")
+
+PROMO_NAMES = {
+    1: "𝖫𝗅é𝗏𝖺𝗍𝖾 𝖾𝗅 𝖽𝗈𝖻𝗅𝖾 𝖽𝖾 𝖽í𝖺𝗌 𝗉𝗈𝗋 𝖾𝗅 𝗉𝗋𝖾𝖼𝗂𝗈 𝗈𝗋𝗂𝗀𝗂𝗇𝖺𝗅.",
+    2: "𝖯𝖺𝗀𝖺 𝗍𝗎 𝖼𝗎𝗉𝗈 𝖾 𝗂𝗇𝗏𝗂𝗍𝖺 𝖺 𝗎𝗇 𝖺𝗆𝗂𝗀𝗈.",
+    3: "30% 𝖽𝖾 𝖽𝖾𝗌𝖼𝗎𝖾𝗇𝗍𝗈 𝖾𝗇 𝖼𝗎𝖺𝗅𝗊𝗎𝗂𝖾𝗋 𝗉𝗅𝖺𝗇.",
+    4: "50% 𝖽𝖾 𝖽𝖾𝗌𝗼𝗎𝖾𝗇𝗍𝗈 𝖾𝗇 𝖼𝗎𝖺𝗅𝗊𝗎𝗂𝖾𝗋 𝗉𝗅𝖺𝗇.",
+    5: "20 𝖽í𝖺𝗌 𝗍𝗈𝗍𝖺𝗅𝗆𝖾𝗇𝗍𝖾 𝗀𝗋𝖺𝗍𝗂𝗌."
+}
+
+def roll_promotion():
+    # Probabilidades: 1:15%, 2:30%, 3:30%, 4:15%, 5:10%
+    rand = random.random() * 100
+    if rand < 15:
+        return 1
+    elif rand < 45:
+        return 2
+    elif rand < 75:
+        return 3
+    elif rand < 90:
+        return 4
+    else:
+        return 5
+
+def generate_code(promo_id):
+    suffix = "".join(random.choices("0123456789", k=2))
+    bases = {
+        1: f"DOUBLERRIEX{suffix}",
+        2: f"TWINWITCHX{suffix}",
+        3: f"THIRTYCHERRIESX{suffix}",
+        4: f"FIFTYFIFTYX{suffix}",
+        5: f"FREEGHOSTX{suffix}"
+    }
+    code = bases.get(promo_id, f"PROMOX{suffix}")
+    # Asegurar unicidad total
+    while code in redeemed_codes:
+        suffix = "".join(random.choices("0123456789", k=2))
+        code = bases.get(promo_id, f"PROMOX{suffix}")
+    return code
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    username_display = f"@{user.username}" if user.username else user.first_name
+    
+    text = (
+        f"ㅤㅤㅤㅤ꒰ ♡ྀི ꒱ㅤㅤ𝓗𝖾𝗅𝗅𝗈 𝗍𝗁𝖾𝗋𝖾, {username_display} ! ㅤㅤㅤㅤㅤㅤㅤㅤ\n"
+        f"𝓢𝗈𝗒 𝖾𝗅 𝖻𝗈𝗍 𝖽𝖾 𝗌𝗎𝖻'𝗌 𝖾𝗌𝗉𝖾𝖼𝗂𝖺𝗅𝖾𝗌 𝖽𝖾 𝖼𝗁𝖾𝗋𝗋𝗒'𝗌, 𝖽𝗈𝗇𝖽𝖾 𝗉𝗎𝖾𝖽𝖾𝗌 𝖼𝗈𝗇𝗌𝖾𝗀𝗎𝗂𝗋 𝗎𝗇 𝗉𝗅𝖺𝗇 𝖾𝗑𝖼𝗅𝗎𝗌𝗂𝗏𝗈 𝖼𝗈𝗇 𝗉𝗋𝖾𝖼𝗂𝗈𝗌 𝗒 𝖻𝖾𝗇𝖾𝖿𝗂𝖼𝗂𝗈𝗌 ú𝗇𝗂𝖼𝗈𝗌.\n"
+        f"𝗎𝗌𝖺 /lucky 𝗉𝖺𝗋𝖺 𝗋𝖾𝖼𝗂𝖻𝗂𝗋 𝗎𝗇𝖺 𝖽𝖾 𝗇𝗎𝖾𝗌𝗍𝗋𝖺𝗌 𝗉𝗋𝗈𝗆𝗈𝖼𝗂𝗈𝗇𝖾𝗌 𝖽𝖾 𝗆𝖺𝗇𝖾𝗋𝖺 𝖺𝗅𝖾𝖺𝗍𝗈𝗋𝗂𝖺."
+    )
+    await update.message.reply_text(text)
+
+async def lucky(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+
+    if user_id in user_attempts and user_attempts[user_id].get("has_rolled"):
+        await update.message.reply_text("¡Ya has utilizado tu único intento en /lucky! Si ganaste la opción de invitar a un amigo y no tienes a quién, puedes usar /luckier.")
+        return
+
+    # Registrar intento inicial
+    user_attempts[user_id] = {"has_rolled": True, "can_luckier": False}
+
+    loading_msg = await update.message.reply_text(
+        "ㅤ ̗̀ ː͡₊ˀㅤ𝓑𝗎𝗌𝖼𝖺𝗇𝖽𝗈 𝗎𝗇𝖺 𝗉𝗋𝗈𝗆𝗈𝖼𝗂ó𝗇 𝗉𝖾𝗋𝖿𝖾𝖼𝗍𝖺 𝗉𝖺𝗋𝖺 𝗍í... \n"
+        "ㅤㅤㅤㅤㅤ ⊹ ㅤㅤ𝖺𝗀𝗎𝖺𝗋𝖽𝖺 𝗎𝗇𝗈𝗌 𝗌𝖾𝗀𝗎𝗇𝖽𝗈𝗌."
+    )
+
+    await asyncio.sleep(10)
+
+    promo_id = roll_promotion()
+    code = generate_code(promo_id)
+    
+    user_attempts[user_id]["promo"] = promo_id
+    user_attempts[user_id]["code"] = code
+
+    if promo_id == 2:
+        user_attempts[user_id]["can_luckier"] = True
+
+    response_text = get_promo_message(promo_id, code)
+    await loading_msg.edit_text(response_text, parse_mode="Markdown")
+
+async def luckier(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+
+    data = user_attempts.get(user_id)
+    if not data or not data.get("can_luckier"):
+        await update.message.reply_text("Este comando solo está disponible si en tu primer intento con /lucky obtuviste la promoción de invitar a un amigo y no tienes a quién.")
+        return
+
+    # Desactivar futuros luckier (último intento)
+    user_attempts[user_id]["can_luckier"] = False
+
+    loading_msg = await update.message.reply_text(
+        "ㅤ ̗̀ ː͡₊ˀㅤ𝓑𝗎𝗌𝖼𝖺𝗇𝖽𝗈 𝗎𝗇𝖺 𝗇𝗎𝖾𝗏𝖺 𝗈𝗉𝗈𝗋𝗍𝗎𝗇𝗂𝖽𝖺𝖽 𝗉𝖺𝗋𝖺 𝗍í... \n"
+        "ㅤㅤㅤㅤㅤ ⊹ ㅤㅤ𝖺𝗀𝗎𝖺𝗋𝖽𝖺 𝗎𝗇𝗈𝗌 𝗌𝖾𝗀𝗎𝗇𝖽𝗈𝗌."
+    )
+
+    await asyncio.sleep(10)
+
+    promo_id = roll_promotion()
+    code = generate_code(promo_id)
+    
+    user_attempts[user_id]["promo"] = promo_id
+    user_attempts[user_id]["code"] = code
+
+    response_text = get_promo_message(promo_id, code)
+    await loading_msg.edit_text(response_text, parse_mode="Markdown")
+
+def get_promo_message(promo_id, code):
+    if promo_id == 1:
+        return (
+            "ㅤㅤㅤ˗ˋ   𐔌   ︵ ♡   ¡𝖫𝖺 𝗌𝗎𝖾𝗋𝗍𝖾 𝗁𝖺 𝖽𝖾𝖼𝗂𝖽𝗂𝖽𝗈 𝗉𝗈𝗋 𝗍í! \n"
+            "ㅤㅤㅤㅤㅤㅤㅤㅤㅤ  𝗍𝗎 𝗉𝗅𝖺𝗇 𝖺𝗌𝗂𝗀𝗇𝖺𝖽𝗈 𝖾𝗌: \n"
+            "ㅤㅤ๑ㅤ𝖫𝗅é𝗏𝖺𝗍𝖾 𝖾𝗅 𝖽𝗈𝖻𝗅𝖾 𝖽𝖾 𝖽í𝖺𝗌 𝗉𝗈𝗋 𝖾𝗅 𝗉𝗋𝖾𝖼𝗂𝗈 𝗈𝗋𝗂𝗀𝗂𝗇𝖺𝗅. \n\n"
+            "⎯     ¿𝖤𝗇 𝗊𝗎é 𝖼𝗈𝗇𝗌𝗂𝗌𝗍𝖾? 𝖥á𝖼𝗂𝗅, 𝗇𝗎𝖾𝗌𝗍𝗋𝖺 𝖺𝖽𝗆𝗂𝗇 𝗍𝖾 𝖿𝖺𝖼𝗂𝗅𝗂𝗍𝖺𝗋á 𝗅𝖺 𝗅𝗂𝗌𝗍𝖺 𝖽𝖾 𝗉𝗋𝖾𝖼𝗂𝗈𝗌 𝖼𝗈𝗇 𝗅𝗈𝗌 𝗊𝗎𝖾 𝖼𝗈𝗇𝗍𝖺𝗆𝗈𝗌, 𝗒 𝖼𝗈𝗇 𝚌𝚞𝚊𝚕𝗊𝚞𝚒𝖾𝚛 𝚙𝚕𝚊𝚗 𝚚𝚞𝚎 𝚎𝚕𝚒𝚓𝚊𝚜, 𝚝𝚞 𝚎𝚜𝚝𝚊𝚍í𝚊 𝚎𝚗 𝚎𝚕 𝚙𝚛𝚒𝚟 𝚍𝚞𝚛𝚊𝚛á 𝚎𝚕 𝚍𝚘𝚋𝚕𝚎, 𝚌𝚘𝚗 𝚎𝚕 𝚖𝚒𝚜𝚖𝚘 𝚙𝚛𝚎𝚌𝚒𝚘 𝚍𝚎𝚕 𝚙𝚕𝚊𝚗.\n"
+            "⎯     𝖤𝗃𝖾𝗆𝗯𝗅𝗈: ¿𝖰𝗎𝗂𝖾𝗋𝖾𝗌 𝚌𝚘𝚖𝚙𝚛𝚊𝚛 15 𝚍í𝚊𝗌? 𝖳𝖾 𝗊𝗎𝖾𝖽𝖺𝗋á𝗌 30 𝖽í𝖺𝗌, 𝗉𝖺𝗀𝖺𝗇𝖽𝗈 ú𝗇𝗂𝖼𝖺𝗆𝖾𝗇𝗍𝖾 𝖾𝗅 𝚌𝚘𝚜𝚝𝚘 𝚍𝚎𝚕 𝚙𝚕𝚊𝚗 𝚍𝚎 15 𝚍í𝖺𝗌.\n\n"
+            f"꒰ᐢ. .ᐢ꒱  𝖯𝖺𝗋𝖺 𝖺𝖼𝗍𝗂𝗏𝖺𝗋 𝗍𝗎 𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇, 𝗎𝗌𝖺 '`/redeem {code}`'"
+        )
+    elif promo_id == 2:
+        return (
+            "ㅤㅤㅤ˗ˋ   𐔌   ︵ ♡   ¡𝖫𝖺 𝗌𝗎𝖾𝗋𝗍𝖾 𝗁𝖺 𝖽𝖾𝖼𝗂𝖽𝗂𝖽𝗈 𝗉𝗈𝗋 𝗍í! \n"
+            "ㅤㅤㅤㅤㅤㅤㅤㅤㅤ  𝗍𝗎 𝗉𝗅𝖺𝗇 𝖺𝗌𝗂𝗀𝗇𝖺𝖽𝗈 𝖾𝗌: \n"
+            "ㅤㅤㅤㅤ  ๑ㅤ𝖯𝖺𝗀𝖺 𝗍𝗎 𝖼𝗎𝗉𝗈 𝖾 𝗂𝗇𝗏𝗂𝗍𝖺 𝖺 𝗎𝗇 𝖺𝗆𝗂𝗀𝗈. \n\n"
+            ". 𝜗ৎ    𝖳𝖺𝗅 𝖼𝗈𝗆𝗈 𝖾𝗅 𝗇𝗈𝗆𝖻𝗋𝖾 𝗅𝗈 𝖽𝗂𝖼𝖾, 𝗉𝗎𝖾𝖽𝖾𝗌 𝚒𝚗𝚟𝚒𝚝𝚊𝚛 𝚊 𝚞𝚗 𝚊𝚖𝚒𝚐𝚘 𝚊 𝚍𝚒𝚜𝚏𝚛𝚞𝚝𝚊𝚛 𝚍𝚎𝚕 𝚙𝚛𝚒𝚟, 𝚜𝚒𝚗 𝚚𝚞𝚎 𝚜𝚎 𝚝𝚎 𝚊𝚙𝚕𝚒𝚚𝚞𝚎𝚗 𝚌𝚘𝚜𝚝𝚘𝚜 𝚎𝚡𝚝𝚛𝚊. \n"
+            "¿𝖭𝗈 𝗍𝗂𝖾𝗇𝖾𝗌 𝖺 𝗊𝗎𝗂é𝗇 𝗂𝗇𝗏𝗂𝗍𝖺𝗋? ¡𝖳𝗋𝖺𝗇𝗊𝗎𝗂𝗅𝗈! 𝗍𝖾𝗇𝖾𝗆𝗈𝗌 𝗎𝗇𝖺 𝖺𝗅𝗍𝖾𝗋𝗇𝖺𝗍𝗂𝗏𝖺 𝗉𝖺𝗋𝖺 𝖾𝗌𝗍𝗈𝗌 𝖼𝖺𝗌𝗈𝗌, 𝗉𝗎𝖾𝖽𝖾𝗌 𝗎𝗌𝖺𝗋 𝚙𝚊𝚛𝚊 𝚛𝚎𝚌𝚒𝚋𝚒𝚛 𝚘𝚝𝚛𝚊 𝚘𝚙𝚘𝚛𝚝𝚞𝚗𝚒𝚍𝚊𝚍 𝚍𝚎  𝚙𝚛𝚘𝚖𝚘𝚌𝚒ó𝚗, 𝚜𝚒𝚎𝚗𝚍𝚘 𝚎𝚜𝚝𝚎 𝚝𝚞 ú𝚕𝚝𝚒𝚖𝚘 𝚒𝚗𝚝𝚎𝚗𝚝𝚘.\n\n"
+            f"꒰ᐢ. .ᐢ꒱  𝖯𝖺𝗋𝖺 𝖺𝖼𝗍𝗂𝗏𝖺𝗋 𝗍𝗎 𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇, 𝗎𝗌𝖺 '`/redeem {code}`'\n"
+            " ೄ ㅤ 𝖤𝗇 𝖼𝖺𝗌𝗈 𝖽𝖾 𝗊𝗎𝖾𝗋𝖾𝗋 𝖼𝖺𝗆𝖻𝗂𝖺𝗋 𝖾𝗌𝗍𝖾 𝗉𝗅𝖺𝗇, 𝗎𝗌𝖺 /luckier"
+        )
+    elif promo_id == 3:
+        return (
+            "ㅤㅤㅤ˗ˋ   𐔌   ︵ ♡   ¡𝖫𝖺 𝗌𝗎𝖾𝗋𝗍𝖾 𝗁𝖺 𝖽𝖾𝖼𝗂𝖽𝗂𝖽𝗈 𝗉𝗈𝗋 𝗍í! \n"
+            "ㅤㅤㅤㅤㅤㅤㅤㅤㅤ  𝗍𝗎 𝗉𝗅𝖺𝗇 𝖺𝗌𝗂𝗀𝗇𝖺𝖽𝗈 𝖾𝗌: \n"
+            "ㅤㅤㅤㅤ  ๑ㅤ30% 𝖽𝖾 𝖽𝖾𝗌𝖼𝗎𝖾𝗇𝗍𝗈 𝖾𝗇 𝖼𝗎𝖺𝗅𝗊𝗎𝗂𝖾𝗋 𝗉𝗅𝖺𝗇.\n\n"
+            "    ꒰  𔗨۪ 𝆬   .   𝖢𝗈𝗇 𝖾𝗌𝗍𝖺 𝗉𝗋𝗈𝗆𝗈𝖼𝗂ó𝗇 𝗈𝖻𝗍𝗂𝖾𝗇𝖾𝗌 𝗎𝗇𝖺 𝚒𝚗𝚌𝚛𝚎í𝚋𝚕𝚎 𝚛𝚎𝚋𝚊𝚓𝚊 𝚍𝚎𝚕 30% 𝚎𝚗 𝚝𝚘𝚍𝚘𝚜 𝚕𝚘𝚜 𝚙𝚕𝚊𝚗𝚎𝚜 𝚚𝚞𝚎 𝚙𝚛𝚎𝚜𝚎𝚗𝚝𝚊𝚖𝚘𝚜. 𝚌𝚞𝚊𝚕𝚚𝚞𝚒𝚎𝚛 𝚙𝚕𝚊𝚗 𝚜𝚎 𝚟𝚞𝚎𝚕𝚟𝚎 أú𝚗 𝚖á𝚜 𝚊𝚜𝚎𝗊𝚞𝚒𝚋𝚕𝚎.\n\n"
+            f"꒰ᐢ. .ᐢ꒱  𝖯𝖺𝗋𝖺 𝖺𝖼𝗍𝗂𝗏𝖺𝗋 𝗍𝗎 𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇, 𝗎𝗌𝖺 '`/redeem {code}`'"
+        )
+    elif promo_id == 4:
+        return (
+            "ㅤㅤㅤ˗ˋ   𐔌   ︵ ♡   ¡𝖫𝖺 𝗌𝗎𝖾𝗋𝗍𝖾 𝗁𝖺 𝖽𝖾𝖼𝗂𝖽𝗂𝖽𝗈 𝗉𝗈𝗋 𝗍í! \n"
+            "ㅤㅤㅤㅤㅤㅤㅤㅤㅤ  𝗍𝗎 𝗉𝗅𝖺𝗇 𝖺𝗌𝗂𝗀𝗇𝖺𝖽𝗈 𝖾𝗌: \n"
+            "ㅤㅤㅤㅤ  ๑ㅤ50% 𝖽𝖾 𝖽𝖾𝗌𝖼𝗎𝖾𝗇𝗍𝗈 𝖾𝗇 𝖼𝗎𝖺𝗅𝗊𝗎𝗂𝖾𝗋 𝗉𝗅𝖺𝗇.\n\n"
+            ".°   ୭ ¡𝖬𝖺𝗋𝖺𝗏𝗂𝗅𝗅𝗈𝗌𝗈! 𝖠𝗁𝗈𝗋𝖺 𝚙𝚞𝚎𝚍𝚎𝚜 𝚊𝚍𝚚𝚞𝚒𝚛𝚒𝚛 𝚌𝚞𝚊𝚕𝚚𝚞𝚒𝚎𝚛𝚊 𝚍𝚎 𝚗𝚞𝚎𝚜𝚝𝚛𝚘𝚜 𝚙𝚕𝚊𝚗𝚎𝚜, 𝚙𝚊𝚐𝚊𝚗𝚍𝚘 𝚝𝚊𝚗 𝚜𝚘𝚕𝚘 𝚕𝚊 𝚖𝚒𝚝𝚊𝚍 𝚍𝚎 𝚜𝚞 𝚙𝚛𝚎𝚌𝚒𝚘 𝚘𝚛𝚒𝚐𝚒𝚗𝚊𝚕, 𝚗𝚒 𝚖á𝚜 𝚗𝚒 𝚖𝚎𝚗𝚘𝚜.\n\n"
+            f"꒰ᐢ. .ᐢ꒱  𝖯𝖺𝗋𝖺 𝖺𝖼𝗍𝗂𝗏𝖺𝗋 𝗍𝗎 𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇, 𝗎𝗌𝖺 '`/redeem {code}`'"
+        )
+    else:
+        return (
+            "ㅤㅤㅤ˗ˋ   𐔌   ︵ ♡   ¡𝖫𝖺 𝗌𝗎𝖾𝗋𝗍𝖾 𝗁𝖺 𝖽𝖾𝖼𝗂𝖽𝗂𝖽𝗈 𝗉𝗈𝗋 𝗍í! \n"
+            "ㅤㅤㅤㅤㅤㅤㅤㅤㅤ  𝗍𝗎 𝗉𝗅𝖺𝗇 𝖺𝗌𝗂𝗀𝗇𝖺𝖽𝗈 𝖾𝗌: \n"
+            "ㅤㅤㅤㅤㅤㅤ    ๑ㅤ20 𝖽í𝖺𝗌 𝗍𝗈𝗍𝖺𝗅𝗆𝖾𝗇𝗍𝖾 𝗀𝗋𝖺𝗍𝗂𝗌.\n\n"
+            "¡𝖤𝗇𝗁𝗈𝗋𝖺𝖻𝗎𝖾𝗇𝖺! 𝖳𝖾 𝚑𝚊𝚜 𝚝𝚘𝚙𝚊𝚍𝚘 𝚌𝚘𝚗 𝚕𝚊 𝚖𝚎𝚓𝚘𝚛 𝚙𝚛𝚘𝚖𝚘𝚌𝚒ó𝚗 𝚚𝚞𝚎 𝚙𝚘𝚜𝚎𝚎𝚖𝚘𝚜, 𝚍𝚘𝚗𝚍𝚎 𝚝𝚎 𝚕𝚕𝚎𝚟𝚊𝚜 𝚝𝚘𝚍𝚊 𝚎𝚜𝚝𝚊 𝚌𝚊𝚗𝚝𝚒𝚍𝚊𝚍 𝚍𝚎 𝚍í𝚊𝚜 𝚊𝚍𝚒𝚌𝚒𝚘𝚗𝚊𝚕𝚎𝚜 𝚊 𝚝𝚞 𝚌𝚘𝚖𝚙𝚛𝚊, 𝚕𝚊 𝚌𝚞𝚊𝚕 𝚍𝚎𝚋𝚎 𝚜𝚎𝚛 𝚖𝚊𝚢𝚘𝚛 𝚊 15 𝚍í𝚊𝗌.\n\n"
+            f"꒰ᐢ. .ᐢ꒱  𝖯𝖺𝗋𝖺 𝖺𝗏ti𝗏𝖺𝗋 𝗍𝗎 𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇, 𝗎𝗌𝖺 '`/redeem {code}`'"
+        )
+
+async def redeem(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    user_id = user.id
+
+    if not context.args:
+        await update.message.reply_text("Por favor, usa el formato correcto: /redeem + [CODE]")
+        return
+
+    input_code = context.args[0].strip()
+
+    # Verificar si el código pertenece al usuario según su tirada
+    user_data = user_attempts.get(user_id)
+    if not user_data or user_data.get("code") != input_code:
+        await update.message.reply_text("El código ingresado no es válido o no te pertenece.")
+        return
+
+    if input_code in redeemed_codes:
+        await update.message.reply_text("Este código ya ha sido canjeado anteriormente.")
+        return
+
+    promo_id = user_data["promo"]
+    promo_name = PROMO_NAMES[promo_id]
+    username_str = f"@{user.username}" if user.username else user.first_name
+    purchase_id = "".join(random.choices("0123456789", k=7))
+    
+    now_dt = datetime.now(TZ_GMT_MINUS_4)
+    # Formato ejemplo: 27/10/2026 1:50 p.m (GMT-4)
+    hour_12 = now_dt.strftime("%I:%M").lstrip("0")
+    ampm = now_dt.strftime("%p").lower().replace("am", "a.m").replace("pm", "p.m")
+    date_str = f"{now_dt.strftime('%d/%m/%Y')} {hour_12} {ampm} (GMT-4)"
+
+    claim_data = {
+        "promo_name": promo_name,
+        "code": input_code,
+        "username": username_str,
+        "user_id": user_id,
+        "purchase_id": purchase_id,
+        "date": date_str
+    }
+
+    redeemed_codes[input_code] = claim_data
+    user_claims[user_id] = claim_data
+
+    final_message = (
+        "ㅤㅤ░.⠀۟⠀｡ㅤㅤ𝓒𝖺𝗇𝗃𝖾𝖺𝖽𝗈 𝖾𝗑𝗂𝗍𝗈𝗌𝖺𝗆𝖾𝗇𝗍𝖾!ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ\n\n"
+        f"༶⠀𝖯𝗋𝗈𝗆𝗈𝖼𝗂ó𝗇: {promo_name}\n"
+        f"༶⠀𝖢ó𝖽𝗂𝗀𝗈 𝖼𝖺𝗇𝗃𝖾𝖺𝖽𝗈: {input_code}\n"
+        f"༶⠀𝖴𝗌𝗎𝖺𝗋𝗂𝗈: {username_str}\n"
+        f"༶⠀𝖨𝖣 𝖽𝖾 𝖼𝗈𝗆𝗉𝗋𝖺: {purchase_id}\n"
+        f"༶⠀𝖥𝖾𝖼𝗁𝖺: {date_str}\n\n"
+        "ᬊ   𝖯𝖺𝗋𝖺 𝖿𝗂𝗇𝖺𝗅𝗂𝗓𝖺𝗋 𝗍𝗎 𝗉𝗋𝗈𝖼𝖾𝗌𝗈 𝖽𝖾 𝖼𝗈𝗆𝗉𝗋𝖺, 𝖽𝖾𝖻𝖾𝗌 𝗋𝖾𝖾𝗇𝗏𝗂𝖺𝗋𝗅𝖾 \n"
+        "𝖾𝗌𝗍𝖾 𝗆𝖾𝗇𝗌𝖺𝗃𝖾 𝖺 𝗎𝗇𝖺 𝖽𝖾 𝗅𝖺𝗌 𝖺𝖽𝗆𝗂𝗇𝗌 ( @kirschteiinz & @zilbato ), 𝗊𝗎𝗂é𝗇𝖾𝗌 𝗍𝖾 𝗀𝗎𝗂𝖺𝗋á𝗇 𝖾𝗇 𝖾𝗌𝗍𝗈. 𝗋𝖾𝖼𝗎𝖾𝗋𝖽𝖺, 𝖾𝗅 𝗆𝖾𝗇𝗌𝖺𝗃𝖾 𝖽𝖾𝖻𝖾 𝗌𝖾𝗋 𝖾𝗇𝗏𝗂𝖺𝖽𝗈 𝖽𝗂𝗋𝖾𝖼𝗍𝖺𝗆𝖾𝗇𝗍𝖾 𝖽𝖾 𝖾𝗌𝗍𝖾 𝖼𝗁𝖺𝗍, 𝗌𝗂𝗇 𝗆𝗈𝖽𝗂𝖿𝗂𝖼𝖺𝗋 𝗇𝖺𝖽𝖺 𝗇𝗂 𝗈𝖼𝗎𝗅𝗍𝖺𝗋 𝖾𝗅 𝗋𝖾𝗆𝗂𝗍𝖾𝗇𝗍𝖾."
+    )
+
+    await update.message.reply_text(final_message)
+
+async def registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id not in ADMINS:
+        return
+
+    if not user_claims:
+        await update.message.reply_text("No hay suscripciones reclamadas todavía.")
+        return
+
+    text = "         ୧     ㅤㅤ  𝖲𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂𝗈𝗇𝖾𝗌 𝗋𝖾𝖼𝗅𝖺𝗆𝖺𝖽𝖺𝗌!\n\n"
+    for claim in user_claims.values():
+        text += f"✼   {claim['username']}\n.°    𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇: {claim['promo_name']}\n\n"
+
+    await update.message.reply_text(text)
+
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id not in ADMINS:
+        return
+
+    if not context.args:
+        await update.message.reply_text("Uso correcto: /info @usuario (o ID)")
+        return
+
+    target_query = context.args[0].strip()
+    found_claim = None
+
+    for claim in user_claims.values():
+        if target_query.lower() in claim["username"].lower() or target_query == str(claim["user_id"]):
+            found_claim = claim
+            break
+
+    if not found_claim:
+        await update.message.reply_text("No se encontró ningún registro para ese usuario.")
+        return
+
+    info_text = (
+        "ㅤㅤㅤㅤㅤㅤ░.⠀۟⠀｡ㅤㅤ𝓤𝗌𝖾𝗋'𝗌 𝗂𝗇𝖿𝗈ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ\n\n"
+        f"༶⠀𝖯𝗋𝗈𝗆𝗈𝼗𝗂ó𝗇: {found_claim['promo_name']}\n"
+        f"༶⠀𝖢ó𝖽𝗂𝗀𝗈 𝖼𝖺𝗇𝗃𝖾𝖺𝖽𝗈: {found_claim['code']}\n"
+        f"༶⠀𝖴𝗌𝗎𝖺𝗋𝗂𝗈: {found_claim['username']}\n"
+        f"༶⠀𝖨𝖣 𝖽𝖾 𝖼𝗈𝗆𝗉𝗋𝖺: {found_claim['purchase_id']}\n"
+        f"༶⠀𝖨𝖣 𝖽𝖾𝗅 𝗎𝗌𝗎𝖺𝗋𝗂𝗈: {found_claim['user_id']}\n"
+        f"༶⠀𝖥𝖾𝖼𝗁𝖺: {found_claim['date']}"
+    )
+
+    await update.message.reply_text(info_text)
+
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("lucky", lucky))
+    app.add_handler(CommandHandler("luckier", luckier))
+    app.add_handler(CommandHandler("redeem", redeem))
+    app.add_handler(CommandHandler("registro", registro))
+    app.add_handler(CommandHandler("info", info))
+
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
