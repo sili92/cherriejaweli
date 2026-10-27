@@ -12,7 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "9032684474:AAHepNpFbaBPgxDxms2rDepMkI0bKqvET
 # Admins autorizadas (IDs)
 ADMINS = {5398217730, 6719272561}
 
-# Base de datos en memoria (para producción se recomienda base de datos externa, pero funciona perfectamente para Railway)
+# Base de datos en memoria
 user_attempts = {}
 redeemed_codes = {}
 user_claims = {}
@@ -28,7 +28,6 @@ PROMO_NAMES = {
 }
 
 def roll_promotion():
-    # Probabilidades: 1:15%, 2:30%, 3:30%, 4:15%, 5:10%
     rand = random.random() * 100
     if rand < 15:
         return 1
@@ -51,7 +50,6 @@ def generate_code(promo_id):
         5: f"FREEGHOSTX{suffix}"
     }
     code = bases.get(promo_id, f"PROMOX{suffix}")
-    # Asegurar unicidad total
     while code in redeemed_codes:
         suffix = "".join(random.choices("0123456789", k=2))
         code = bases.get(promo_id, f"PROMOX{suffix}")
@@ -76,7 +74,6 @@ async def lucky(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("¡Ya has utilizado tu único intento en /lucky! Si ganaste la opción de invitar a un amigo y no tienes a quién, puedes usar /luckier.")
         return
 
-    # Registrar intento inicial
     user_attempts[user_id] = {"has_rolled": True, "can_luckier": False}
 
     loading_msg = await update.message.reply_text(
@@ -107,7 +104,6 @@ async def luckier(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Este comando solo está disponible si en tu primer intento con /lucky obtuviste la promoción de invitar a un amigo y no tienes a quién.")
         return
 
-    # Desactivar futuros luckier (último intento)
     user_attempts[user_id]["can_luckier"] = False
 
     loading_msg = await update.message.reply_text(
@@ -167,7 +163,7 @@ def get_promo_message(promo_id, code):
             "ㅤㅤㅤ˗ˋ   𐔌   ︵ ♡   ¡𝖫𝖺 𝗌𝗎𝖾𝗋𝗍𝖾 𝗁𝖺 𝖽𝖾𝖼𝗂𝖽𝗂𝖽𝗈 𝗉𝗈𝗋 𝗍í! \n"
             "ㅤㅤㅤㅤㅤㅤㅤㅤㅤ  𝗍𝗎 𝗉𝗅𝖺𝗇 𝖺𝗌𝗂𝗀𝗇𝖺𝖽𝗈 𝖾𝗌: \n"
             "ㅤㅤㅤㅤㅤㅤ    ๑ㅤ20 𝖽í𝖺𝗌 𝗍𝗈𝗍𝖺𝗅𝗆𝖾𝗇𝗍𝖾 𝗀𝗋𝖺𝗍𝗂𝗌.\n\n"
-            "¡𝖤𝗇𝗁𝗈𝗋𝖺𝖻𝗎𝖾𝗇𝖺! 𝖳𝖾 𝗁𝖺𝗌 𝗍𝗈𝗉𝖺𝖽𝗈 𝖼𝗈𝗇 𝗅𝖺 𝗆𝖾𝗃𝗈𝗋 𝗉𝗋𝗈𝗆𝗈𝖼𝗂ó𝗇 𝗊𝗎𝖾 𝗉𝗈𝗌𝖾𝖾𝗆𝗈𝗌, 𝖽𝗈𝗇𝖽𝖾 𝗍𝖾 𝗅𝗅𝖾𝗏𝖺𝗌 𝗍𝗈𝖽𝖺 𝖾𝗌𝗍𝖺 𝖼𝖺𝗇𝗍𝗂𝖽𝖺𝖽 𝖽𝖾 𝖽í𝖺𝗌 𝖺𝖽𝗂𝖼𝗂𝗈𝗇𝖺𝗅𝖾𝗌 𝖺 𝗍𝗎 𝖼𝗈𝗆𝗉𝗋𝖺, 𝗅𝖺 𝖼𝗎𝖺𝗅 𝖽𝖾𝖻𝖾 𝗌𝖾𝗋 𝗆𝖺𝗒𝗈𝗋 𝖺 15 𝖽í𝖺𝗌.\n\n"
+            "¡𝖤𝗇𝗁𝗈𝗋𝖺𝖻𝗎𝖾𝗇𝖺! 𝖳𝖾 𝗁𝖺𝗌 𝗍𝗈𝗉𝖺𝖽𝗈 𝖼𝗈𝗇 𝗅𝖺 𝗆𝖾𝗃𝗈𝗋 𝗉𝗋𝗈𝗆𝗈𝖼𝗂ó𝗇 𝗊𝗎𝖾 𝗉𝗈𝗌𝖾𝖾𝗆𝗈𝗌, 𝖽𝗈𝗇𝖽𝖾 𝗍𝖾 𝗅𝗅𝖾𝗏𝖺𝗌 𝗍𝗈𝖽𝖺 𝖾𝗌𝗍𝖺 𝖼𝖺𝗇𝗍𝗂𝖽𝖺𝖽 𝖽𝖾 𝖽í𝖺𝗌 𝖺𝖽𝗂𝖼𝗂𝗈𝗇𝖺𝗅𝖾𝗌 𝖺 𝗍𝗎 𝚌𝚘𝚖𝚙𝗋𝖺, 𝚕𝚊 𝚌𝚞𝚊𝚕 𝚍𝚎𝚋𝚎 𝚜𝚎𝚛 𝚖𝚊𝚢𝚘𝚛 𝚊 15 𝚍í𝚊𝗌.\n\n"
             f"꒰ᐢ. .ᐢ꒱  𝖯𝖺𝗋𝖺 𝖺𝖼𝗍𝗂𝗏𝖺𝗋 𝗍𝗎 𝗌𝗎𝗌𝖼𝗋𝗂𝗉𝖼𝗂ó𝗇, 𝗎𝗌𝖺 '`/redeem {code}`'"
         )
 
@@ -262,7 +258,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     info_text = (
-        "ㅤㅤㅤㅤㅤㅤ░.⠀۟⠀｡ㅤㅤ𝓤𝗌𝖾𝗋'𝗌 𝗂𝗇𝖿𝗈ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ\n\n"
+        "ㅤㅤㅤㅤㅤㅤ░.⠀۟⠀｡ㅤㅤ𝓤𝗌𝖾𝗋'𝗌 𝗂𝗇f𝗈ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ\n\n"
         f"༶⠀𝖯𝗋𝗈𝗆𝗈𝖼𝗂ó𝗇: {found_claim['promo_name']}\n"
         f"༶⠀𝖢ó𝖽𝗂𝗀𝗈 𝖼𝖺𝗇𝗃𝖾𝖺𝖽𝗈: {found_claim['code']}\n"
         f"༶⠀𝖴𝗌𝗎𝖺𝗋𝗂𝗈: {found_claim['username']}\n"
@@ -287,5 +283,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-```
