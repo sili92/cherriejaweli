@@ -1,1 +1,1 @@
-worker: python yenitaa.txt
+worker: python putito.py
